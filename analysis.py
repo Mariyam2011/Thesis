@@ -232,6 +232,30 @@ def analyze_spike_positions(results: list[dict]) -> dict:
 # 5. Full summary report
 # ─────────────────────────────────────────────
 
+def _make_json_safe(obj):
+    import numpy as np
+
+    # dict
+    if isinstance(obj, dict):
+        return {k: _make_json_safe(v) for k, v in obj.items()}
+
+    # list / tuple
+    elif isinstance(obj, (list, tuple)):
+        return [_make_json_safe(v) for v in obj]
+
+    # numpy types (MAIN CULPRIT)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+
+    elif isinstance(obj, np.integer):
+        return int(obj)
+
+    elif isinstance(obj, np.floating):
+        return float(obj)
+
+    # fallback
+    return obj
+
 def generate_report(results: list[dict], output_path: str = "results/report.json") -> dict:
     """
     Generate and save a full analysis report.
@@ -254,8 +278,9 @@ def generate_report(results: list[dict], output_path: str = "results/report.json
     }
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    report = _make_json_safe(report)
     with open(output_path, "w") as f:
-        json.dump(report, f, indent=2)
+        json.dump(_make_json_safe(report), f, indent=2)
 
     _print_report(report)
     print(f"[analysis] Report saved → {output_path}")
