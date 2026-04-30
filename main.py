@@ -4,13 +4,13 @@ main.py
 Entry point for the entropy-based failure prediction thesis experiment.
 
 Pipeline:
-  1. Load datasets (GSM8K + MATH500)
+  1. Load datasets (GSM8K by default)
   2. Load model (Qwen2.5-0.5B-Instruct by default)
   3. Run inference with entropy extraction across prompt strategies
   4. Analyze results and generate report
 
 Usage examples:
-  # Quick smoke test (20 problems, CoT only)
+  # Quick smoke test (20 GSM8K problems, CoT only)
   python main.py --limit 20 --strategies cot
 
   # Full run, all strategies
@@ -28,7 +28,7 @@ import json
 import os
 from pathlib import Path
 
-from data_loader import load_gsm8k, load_math500
+from data_loader import load_gsm8k
 from model_utils import load_model
 from experiment import run_experiment
 from analysis import generate_report
@@ -40,9 +40,15 @@ from analysis import generate_report
 
 DEFAULT_MODEL      = "Qwen/Qwen3-0.6B"
 DEFAULT_STRATEGIES = ["cot", "pot", "direct"]
+DEFAULT_DATASETS    = ["gsm8k"]
 DEFAULT_RESULTS_DIR = Path("results")
 DEFAULT_MAX_TOKENS  = 512
 DEFAULT_SAVE_EVERY  = 10
+DEFAULT_REPETITION_PENALTY = 1.12
+DEFAULT_NO_REPEAT_NGRAM_SIZE = 4
+DEFAULT_MAX_CONSECUTIVE_TOKEN_REPEAT = 25
+DEFAULT_MAX_FINAL_ANSWER_MARKERS = 2
+DEFAULT_MAX_IDENTICAL_TRAILING_LINES = 3
 
 
 # ─────────────────────────────────────────────
@@ -79,13 +85,29 @@ def parse_args():
         help="Checkpoint save frequency in problems (default: 10)"
     )
     parser.add_argument(
-        "--datasets", nargs="+", default=["gsm8k", "math500"],
-        choices=["gsm8k", "math500"],
-        help="Datasets to run on (default: both)"
+        "--repetition-penalty", type=float, default=DEFAULT_REPETITION_PENALTY,
+        help="Generation repetition penalty (>1 discourages repeating tokens)."
     )
     parser.add_argument(
-        "--math500-path", type=str, default="data/math500.json",
-        help="Local path to math500.json (will fall back to HuggingFace if missing)"
+        "--no-repeat-ngram-size", type=int, default=DEFAULT_NO_REPEAT_NGRAM_SIZE,
+        help="Block repeated n-grams of this size during generation."
+    )
+    parser.add_argument(
+        "--max-consecutive-token-repeat", type=int, default=DEFAULT_MAX_CONSECUTIVE_TOKEN_REPEAT,
+        help="Stop if one token repeats this many times consecutively."
+    )
+    parser.add_argument(
+        "--max-final-answer-markers", type=int, default=DEFAULT_MAX_FINAL_ANSWER_MARKERS,
+        help="Stop if 'Final Answer' appears this many times."
+    )
+    parser.add_argument(
+        "--max-identical-trailing-lines", type=int, default=DEFAULT_MAX_IDENTICAL_TRAILING_LINES,
+        help="Stop if the last N non-empty lines are identical."
+    )
+    parser.add_argument(
+        "--datasets", nargs="+", default=DEFAULT_DATASETS,
+        choices=["gsm8k"],
+        help="Datasets to run on (default: gsm8k only)"
     )
     parser.add_argument(
         "--analyze-only", action="store_true",
@@ -102,13 +124,11 @@ def parse_args():
 # Dataset loading
 # ─────────────────────────────────────────────
 
-def load_datasets(dataset_names: list[str], math500_path: str) -> dict[str, list[dict]]:
+def load_datasets(dataset_names: list[str]) -> dict[str, list[dict]]:
     """Load requested datasets and return as a dict keyed by name."""
     datasets = {}
     if "gsm8k" in dataset_names:
         datasets["gsm8k"] = load_gsm8k(split="test")
-    if "math500" in dataset_names:
-        datasets["math500"] = load_math500(path=math500_path)
     return datasets
 
 
@@ -116,18 +136,31 @@ def load_datasets(dataset_names: list[str], math500_path: str) -> dict[str, list
 # Analysis-only mode
 # ─────────────────────────────────────────────
 
-def load_all_results(results_dir: Path) -> list[dict]:
+def load_all_results(results_dir: Path, dataset_names: list[str] | None = None) -> list[dict]:
     """
-    Load all *_full.json result files from the results directory
+    Load selected *_full.json result files from the results directory
     and merge them into a single list for combined analysis.
     """
     all_results = []
     full_files = list(results_dir.glob("*_full.json"))
 
+    if dataset_names:
+        dataset_set = set(dataset_names)
+        full_files = [
+            path for path in full_files
+            if any(f"_{dataset_name}_full" in path.stem for dataset_name in dataset_set)
+        ]
+
     if not full_files:
         # Fall back to compact files if no full files found
         full_files = list(results_dir.glob("*.json"))
         full_files = [f for f in full_files if "report" not in f.name]
+        if dataset_names:
+            dataset_set = set(dataset_names)
+            full_files = [
+                path for path in full_files
+                if any(path.stem.endswith(f"_{dataset_name}") for dataset_name in dataset_set)
+            ]
 
     if not full_files:
         print(f"[main] No result files found in {results_dir}")
@@ -160,13 +193,17 @@ def main():
     print(f"  Strategies: {args.strategies}")
     print(f"  Datasets:   {args.datasets}")
     print(f"  Limit:      {args.limit or 'full'}")
+    print(f"  rep_penalty={args.repetition_penalty} ngram={args.no_repeat_ngram_size} "
+          f"repeat_token={args.max_consecutive_token_repeat} "
+          f"final_answer={args.max_final_answer_markers} "
+          f"line_repeat={args.max_identical_trailing_lines}")
     print(f"  Results →   {results_dir}")
     print("=" * 60 + "\n")
 
     # ── Analyze-only mode ──────────────────────────────────────
     if args.analyze_only:
         print("[main] Analyze-only mode — skipping inference.")
-        all_results = load_all_results(results_dir)
+        all_results = load_all_results(results_dir, args.datasets)
         if not all_results:
             print("[main] No results to analyze. Run inference first.")
             return
@@ -176,7 +213,7 @@ def main():
 
     # ── Load datasets ──────────────────────────────────────────
     print("[main] Loading datasets...")
-    datasets = load_datasets(args.datasets, args.math500_path)
+    datasets = load_datasets(args.datasets)
     if not datasets:
         print("[main] ERROR: No datasets loaded. Exiting.")
         return
@@ -217,6 +254,11 @@ def main():
                 output_path=str(output_path),
                 save_every=args.save_every,
                 max_new_tokens=args.max_tokens,
+                repetition_penalty=args.repetition_penalty,
+                no_repeat_ngram_size=args.no_repeat_ngram_size,
+                max_consecutive_token_repeat=args.max_consecutive_token_repeat,
+                max_final_answer_markers=args.max_final_answer_markers,
+                max_identical_trailing_lines=args.max_identical_trailing_lines,
                 limit=args.limit,
             )
             all_results.extend(results)

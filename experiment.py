@@ -34,6 +34,11 @@ def run_experiment(
     output_path: str = "results/run.json",
     save_every:  int = 10,             # save checkpoint every N problems
     max_new_tokens: int = 512,
+    repetition_penalty: float = 1.12,
+    no_repeat_ngram_size: int = 4,
+    max_consecutive_token_repeat: int = 25,
+    max_final_answer_markers: int = 2,
+    max_identical_trailing_lines: int = 3,
     limit:       int | None = None,    # set to e.g. 200 for quick runs
 ) -> list[dict]:
     """
@@ -76,7 +81,12 @@ def run_experiment(
         try:
             gen = generate_with_entropy(
                 model, tokenizer, prompt,
-                max_new_tokens=max_new_tokens
+                max_new_tokens=max_new_tokens,
+                repetition_penalty=repetition_penalty,
+                no_repeat_ngram_size=no_repeat_ngram_size,
+                max_consecutive_token_repeat=max_consecutive_token_repeat,
+                max_final_answer_markers=max_final_answer_markers,
+                max_identical_trailing_lines=max_identical_trailing_lines,
             )
         except Exception as e:
             print(f"[experiment] ERROR on problem {i}: {e}")

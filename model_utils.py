@@ -17,6 +17,7 @@ import re
 import torch
 import torch.nn.functional as F
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import StoppingCriteria, StoppingCriteriaList
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 print(f"[model_utils] Using device: {DEVICE}")
@@ -34,6 +35,86 @@ CONNECTOR_WORDS = {
     "since", "which", "that", "means", "gives", "yields",
     "resulting", "equals", "is", "are", "have", "get"
 }
+
+REPETITION_PENALTY = 1.12
+NO_REPEAT_NGRAM_SIZE = 4
+MAX_CONSECUTIVE_TOKEN_REPEAT = 25
+MAX_FINAL_ANSWER_MARKERS = 2
+MAX_IDENTICAL_TRAILING_LINES = 3
+
+
+def _is_repeated_block_tail(ids: list[int], block_size: int, repeats: int) -> bool:
+    """
+    Return True if the tail of ids is the same block repeated.
+    Example: [..., A,B,A,B,A,B] with block_size=2 and repeats=3.
+    """
+    n = block_size * repeats
+    if len(ids) < n:
+        return False
+    tail = ids[-n:]
+    block = tail[:block_size]
+    for i in range(1, repeats):
+        if tail[i * block_size:(i + 1) * block_size] != block:
+            return False
+    return True
+
+
+class DegenerationStoppingCriteria(StoppingCriteria):
+    """
+    Stops generation when common loop/degeneration patterns are detected.
+    This keeps outputs concise and avoids long repeated templates.
+    """
+
+    def __init__(
+        self,
+        tokenizer,
+        prompt_len: int,
+        max_consecutive_token_repeat: int,
+        max_final_answer_markers: int,
+        max_identical_trailing_lines: int,
+    ):
+        self.tokenizer = tokenizer
+        self.prompt_len = prompt_len
+        self.max_consecutive_token_repeat = max_consecutive_token_repeat
+        self.max_final_answer_markers = max_final_answer_markers
+        self.max_identical_trailing_lines = max_identical_trailing_lines
+
+    def __call__(self, input_ids, scores, **kwargs) -> bool:
+        generated_ids = input_ids[0, self.prompt_len:]
+        if generated_ids.numel() < 20:
+            return False
+
+        ids = generated_ids.tolist()
+
+        # 1) Token-level stutter: same token emitted many times in a row.
+        last = ids[-1]
+        streak = 0
+        for token_id in reversed(ids):
+            if token_id == last:
+                streak += 1
+            else:
+                break
+        if streak >= self.max_consecutive_token_repeat:
+            return True
+
+        # 2) Short repeated block loops (A B A B ... / A B C A B C ...).
+        if _is_repeated_block_tail(ids, block_size=2, repeats=6):
+            return True
+        if _is_repeated_block_tail(ids, block_size=3, repeats=5):
+            return True
+
+        # 3) Text-level repeated "Final Answer" scaffolds / line loops.
+        text = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+        if text.lower().count("final answer") >= self.max_final_answer_markers:
+            return True
+
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        if len(lines) >= self.max_identical_trailing_lines:
+            tail = lines[-self.max_identical_trailing_lines:]
+            if len(set(tail)) == 1:
+                return True
+
+        return False
 
 
 def classify_token(token_str: str) -> str:
@@ -94,7 +175,12 @@ def generate_with_entropy(
     model,
     tokenizer,
     prompt: str,
-    max_new_tokens: int = 512
+    max_new_tokens: int = 512,
+    repetition_penalty: float = REPETITION_PENALTY,
+    no_repeat_ngram_size: int = NO_REPEAT_NGRAM_SIZE,
+    max_consecutive_token_repeat: int = MAX_CONSECUTIVE_TOKEN_REPEAT,
+    max_final_answer_markers: int = MAX_FINAL_ANSWER_MARKERS,
+    max_identical_trailing_lines: int = MAX_IDENTICAL_TRAILING_LINES,
 ) -> dict:
     """
     Generate a response and extract per-token entropy.
@@ -113,6 +199,15 @@ def generate_with_entropy(
     """
     inputs = tokenizer(prompt, return_tensors="pt").to(DEVICE)
     input_len = inputs["input_ids"].shape[1]
+    stopping_criteria = StoppingCriteriaList(
+        [DegenerationStoppingCriteria(
+            tokenizer,
+            prompt_len=input_len,
+            max_consecutive_token_repeat=max_consecutive_token_repeat,
+            max_final_answer_markers=max_final_answer_markers,
+            max_identical_trailing_lines=max_identical_trailing_lines,
+        )]
+    )
 
     with torch.no_grad():
         outputs = model.generate(
@@ -122,7 +217,10 @@ def generate_with_entropy(
             output_scores=True,          # get logits at each step
             do_sample=False,             # greedy — deterministic, reproducible
             temperature=1.0,
-            pad_token_id=tokenizer.eos_token_id
+            repetition_penalty=repetition_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            pad_token_id=tokenizer.eos_token_id,
+            stopping_criteria=stopping_criteria,
         )
 
     # outputs.scores: tuple of (vocab_size,) tensors, one per generated token
