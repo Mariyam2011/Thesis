@@ -1,0 +1,74 @@
+{
+  "n_problems": 40,
+  "accuracy": {
+    "total": 40,
+    "correct": 4,
+    "wrong": 36,
+    "accuracy": 0.1
+  },
+  "auroc_scores": {
+    "entropy_mean": 0.3333,
+    "entropy_max": 0.6736,
+    "entropy_last_10": 0.4722,
+    "entropy_first_10": 0.5903,
+    "entropy_arithmetic": 0.3333,
+    "entropy_connector": 0.4514,
+    "output_length": 0.4653
+  },
+  "random_baseline_auroc": {
+    "mean": 0.5158,
+    "std": 0.1454
+  },
+  "segment_entropy_comparison": {
+    "arithmetic": {
+      "correct_mean": 0.2077,
+      "correct_std": 0.0833,
+      "wrong_mean": 0.2518,
+      "wrong_std": 0.3219,
+      "delta": 0.0441,
+      "t_statistic": 0.6246,
+      "p_value": 0.539866,
+      "significant": false,
+      "n_correct": 4,
+      "n_wrong": 32
+    },
+    "connector": {
+      "correct_mean": 0.7585,
+      "correct_std": 0.2215,
+      "wrong_mean": 0.9239,
+      "wrong_std": 0.5542,
+      "delta": 0.1654,
+      "t_statistic": 1.0659,
+      "p_value": 0.310594,
+      "significant": false,
+      "n_correct": 4,
+      "n_wrong": 26
+    },
+    "other": {
+      "correct_mean": 0.3833,
+      "correct_std": 0.0468,
+      "wrong_mean": 0.3341,
+      "wrong_std": 0.1871,
+      "delta": -0.0492,
+      "t_statistic": -1.2623,
+      "p_value": 0.222819,
+      "significant": false,
+      "n_correct": 4,
+      "n_wrong": 36
+    }
+  },
+  "spike_position_analysis": {
+    "correct": {
+      "early": 0,
+      "middle": 0,
+      "late": 0,
+      "total_spikes": 0
+    },
+    "wrong": {
+      "early": 0,
+      "middle": 0,
+      "late": 0,
+      "total_spikes": 0
+    }
+  }
+}

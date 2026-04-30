@@ -1,0 +1,47 @@
+{
+  "n_problems": 20,
+  "accuracy": {
+    "total": 20,
+    "correct": 1,
+    "wrong": 19,
+    "accuracy": 0.05
+  },
+  "auroc_scores": {
+    "entropy_mean": 0.2632,
+    "entropy_max": 0.8947,
+    "entropy_last_10": 0.3158,
+    "entropy_first_10": 0.7368,
+    "entropy_arithmetic": 0.0526,
+    "entropy_connector": 0.5789,
+    "output_length": 0.1579
+  },
+  "random_baseline_auroc": {
+    "mean": 0.4779,
+    "std": 0.3155
+  },
+  "segment_entropy_comparison": {
+    "arithmetic": {
+      "note": "insufficient data"
+    },
+    "connector": {
+      "note": "insufficient data"
+    },
+    "other": {
+      "note": "insufficient data"
+    }
+  },
+  "spike_position_analysis": {
+    "correct": {
+      "early": 16,
+      "middle": 12,
+      "late": 11,
+      "total_spikes": 39
+    },
+    "wrong": {
+      "early": 472,
+      "middle": 202,
+      "late": 84,
+      "total_spikes": 758
+    }
+  }
+}
