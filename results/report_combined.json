@@ -1,60 +1,60 @@
 {
-  "n_problems": 40,
+  "n_problems": 20,
   "accuracy": {
-    "total": 40,
-    "correct": 4,
-    "wrong": 36,
-    "accuracy": 0.1
+    "total": 20,
+    "correct": 3,
+    "wrong": 17,
+    "accuracy": 0.15
   },
   "auroc_scores": {
-    "entropy_mean": 0.3333,
-    "entropy_max": 0.6736,
-    "entropy_last_10": 0.4722,
-    "entropy_first_10": 0.5903,
-    "entropy_arithmetic": 0.3333,
-    "entropy_connector": 0.4514,
-    "output_length": 0.4653
+    "entropy_mean": 0.2941,
+    "entropy_max": 0.5098,
+    "entropy_last_10": 0.4314,
+    "entropy_first_10": 0.5294,
+    "entropy_arithmetic": 0.4314,
+    "entropy_connector": 0.4314,
+    "output_length": 0.6863
   },
   "random_baseline_auroc": {
-    "mean": 0.5158,
-    "std": 0.1454
+    "mean": 0.5044,
+    "std": 0.1769
   },
   "segment_entropy_comparison": {
     "arithmetic": {
-      "correct_mean": 0.2077,
-      "correct_std": 0.0833,
-      "wrong_mean": 0.2518,
-      "wrong_std": 0.3219,
-      "delta": 0.0441,
-      "t_statistic": 0.6246,
-      "p_value": 0.539866,
+      "correct_mean": 0.1708,
+      "correct_std": 0.0475,
+      "wrong_mean": 0.3102,
+      "wrong_std": 0.3626,
+      "delta": 0.1394,
+      "t_statistic": 1.3371,
+      "p_value": 0.203441,
       "significant": false,
-      "n_correct": 4,
-      "n_wrong": 32
+      "n_correct": 3,
+      "n_wrong": 13
     },
     "connector": {
-      "correct_mean": 0.7585,
-      "correct_std": 0.2215,
-      "wrong_mean": 0.9239,
-      "wrong_std": 0.5542,
-      "delta": 0.1654,
-      "t_statistic": 1.0659,
-      "p_value": 0.310594,
+      "correct_mean": 0.7796,
+      "correct_std": 0.2663,
+      "wrong_mean": 1.085,
+      "wrong_std": 0.6587,
+      "delta": 0.3054,
+      "t_statistic": 1.2161,
+      "p_value": 0.254389,
       "significant": false,
-      "n_correct": 4,
-      "n_wrong": 26
+      "n_correct": 3,
+      "n_wrong": 11
     },
     "other": {
-      "correct_mean": 0.3833,
-      "correct_std": 0.0468,
-      "wrong_mean": 0.3341,
-      "wrong_std": 0.1871,
-      "delta": -0.0492,
-      "t_statistic": -1.2623,
-      "p_value": 0.222819,
+      "correct_mean": 0.3658,
+      "correct_std": 0.038,
+      "wrong_mean": 0.2913,
+      "wrong_std": 0.1758,
+      "delta": -0.0745,
+      "t_statistic": -1.5533,
+      "p_value": 0.13943,
       "significant": false,
-      "n_correct": 4,
-      "n_wrong": 36
+      "n_correct": 3,
+      "n_wrong": 17
     }
   },
   "spike_position_analysis": {
