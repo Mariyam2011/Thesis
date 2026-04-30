@@ -144,7 +144,7 @@ def load_model(model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"):
     )
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
-        torch_dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
+        dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
         trust_remote_code=True
     ).to(DEVICE)
     model.eval()

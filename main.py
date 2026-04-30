@@ -117,6 +117,10 @@ def parse_args():
         "--resume", action="store_true",
         help="Resume from existing checkpoints (skips already-completed problems)"
     )
+    parser.add_argument(
+        "--force-rerun", action="store_true",
+        help="Ignore existing result files and run inference from scratch."
+    )
     return parser.parse_args()
 
 
@@ -236,12 +240,16 @@ def main():
             print(f"[main] Strategy={strategy} | Dataset={dataset_name}")
             print(f"{'─'*50}")
 
-            # If resuming and file exists, results will be loaded inside run_experiment
-            if not args.resume and output_path.exists():
+            # If not resuming and file exists, either skip or force rerun.
+            if not args.resume and not args.force_rerun and output_path.exists():
                 print(f"[main] Results already exist at {output_path}.")
-                print(f"       Use --resume to continue, or delete the file to re-run.")
-                # Still load them for combined analysis
-                with open(output_path, "r") as f:
+                print(f"       Use --resume to continue, --force-rerun to overwrite, or delete the file to re-run.")
+
+                # For combined analysis, prefer full results (with token-level data)
+                # so spike analysis is not silently zeroed.
+                full_existing_path = output_path.with_stem(output_path.stem + "_full")
+                load_path = full_existing_path if full_existing_path.exists() else output_path
+                with open(load_path, "r") as f:
                     existing = json.load(f)
                 all_results.extend(existing)
                 continue
