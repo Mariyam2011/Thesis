@@ -13,6 +13,7 @@ This script:
 
 import argparse
 import inspect
+import math
 import re
 from pathlib import Path
 
@@ -184,6 +185,10 @@ def main():
     )
 
     ta_signature = inspect.signature(TrainingArguments.__init__).parameters
+    steps_per_epoch = math.ceil(len(train_ds) / max(args.batch_size * args.grad_accum, 1))
+    total_update_steps = max(1, int(steps_per_epoch * args.epochs))
+    warmup_steps = int(total_update_steps * args.warmup_ratio)
+
     ta_kwargs = {
         "output_dir": str(output_dir),
         "num_train_epochs": args.epochs,
@@ -191,7 +196,6 @@ def main():
         "per_device_train_batch_size": args.batch_size,
         "per_device_eval_batch_size": args.batch_size,
         "gradient_accumulation_steps": args.grad_accum,
-        "warmup_ratio": args.warmup_ratio,
         "weight_decay": args.weight_decay,
         "logging_steps": args.logging_steps,
         "save_steps": args.save_steps,
@@ -202,6 +206,11 @@ def main():
         "dataloader_num_workers": 0,
         "gradient_checkpointing": True,
     }
+
+    if "warmup_steps" in ta_signature:
+        ta_kwargs["warmup_steps"] = warmup_steps
+    elif "warmup_ratio" in ta_signature:
+        ta_kwargs["warmup_ratio"] = args.warmup_ratio
 
     # Transformers API changed: some versions use evaluation_strategy,
     # newer builds may expose eval_strategy.
@@ -217,14 +226,21 @@ def main():
 
     train_args = TrainingArguments(**ta_kwargs)
 
-    trainer = Trainer(
-        model=model,
-        args=train_args,
-        train_dataset=train_ds,
-        eval_dataset=eval_ds,
-        data_collator=collator,
-        tokenizer=tokenizer,
-    )
+    trainer_kwargs = {
+        "model": model,
+        "args": train_args,
+        "train_dataset": train_ds,
+        "eval_dataset": eval_ds,
+        "data_collator": collator,
+    }
+
+    trainer_signature = inspect.signature(Trainer.__init__).parameters
+    if "tokenizer" in trainer_signature:
+        trainer_kwargs["tokenizer"] = tokenizer
+    elif "processing_class" in trainer_signature:
+        trainer_kwargs["processing_class"] = tokenizer
+
+    trainer = Trainer(**trainer_kwargs)
 
     print("[lora] Starting training...")
     trainer.train()
