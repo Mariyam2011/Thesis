@@ -2,6 +2,7 @@ datasets
 torch
 transformers
 accelerate
+peft
 numpy
 scikit-learn
 matplotlib
