@@ -1,74 +1,74 @@
 {
-  "n_problems": 20,
+  "n_problems": 1319,
   "accuracy": {
-    "total": 20,
-    "correct": 3,
-    "wrong": 17,
-    "accuracy": 0.15
+    "total": 1319,
+    "correct": 98,
+    "wrong": 1221,
+    "accuracy": 0.0743
   },
   "auroc_scores": {
-    "entropy_mean": 0.2941,
-    "entropy_max": 0.5098,
-    "entropy_last_10": 0.4314,
-    "entropy_first_10": 0.5294,
-    "entropy_arithmetic": 0.4314,
-    "entropy_connector": 0.4314,
-    "output_length": 0.6863
+    "entropy_mean": 0.7227,
+    "entropy_max": 0.6378,
+    "entropy_last_10": 0.7276,
+    "entropy_first_10": 0.5091,
+    "entropy_arithmetic": 0.7339,
+    "entropy_connector": 0.6424,
+    "output_length": 0.5802
   },
   "random_baseline_auroc": {
-    "mean": 0.5044,
-    "std": 0.1769
+    "mean": 0.4994,
+    "std": 0.029
   },
   "segment_entropy_comparison": {
     "arithmetic": {
-      "correct_mean": 0.1708,
-      "correct_std": 0.0475,
-      "wrong_mean": 0.3102,
-      "wrong_std": 0.3626,
-      "delta": 0.1394,
-      "t_statistic": 1.3371,
-      "p_value": 0.203441,
-      "significant": false,
-      "n_correct": 3,
-      "n_wrong": 13
+      "correct_mean": 0.6507,
+      "correct_std": 0.2929,
+      "wrong_mean": 0.9089,
+      "wrong_std": 0.35,
+      "delta": 0.2582,
+      "t_statistic": 8.265,
+      "p_value": 0.0,
+      "significant": true,
+      "n_correct": 98,
+      "n_wrong": 1216
     },
     "connector": {
-      "correct_mean": 0.7796,
-      "correct_std": 0.2663,
-      "wrong_mean": 1.085,
-      "wrong_std": 0.6587,
-      "delta": 0.3054,
-      "t_statistic": 1.2161,
-      "p_value": 0.254389,
-      "significant": false,
-      "n_correct": 3,
-      "n_wrong": 11
+      "correct_mean": 1.2661,
+      "correct_std": 0.3766,
+      "wrong_mean": 1.4306,
+      "wrong_std": 0.3902,
+      "delta": 0.1646,
+      "t_statistic": 4.1029,
+      "p_value": 7.7e-05,
+      "significant": true,
+      "n_correct": 96,
+      "n_wrong": 1158
     },
     "other": {
-      "correct_mean": 0.3658,
-      "correct_std": 0.038,
-      "wrong_mean": 0.2913,
-      "wrong_std": 0.1758,
-      "delta": -0.0745,
-      "t_statistic": -1.5533,
-      "p_value": 0.13943,
-      "significant": false,
-      "n_correct": 3,
-      "n_wrong": 17
+      "correct_mean": 1.0704,
+      "correct_std": 0.2432,
+      "wrong_mean": 1.224,
+      "wrong_std": 0.2387,
+      "delta": 0.1537,
+      "t_statistic": 6.0251,
+      "p_value": 0.0,
+      "significant": true,
+      "n_correct": 98,
+      "n_wrong": 1221
     }
   },
   "spike_position_analysis": {
     "correct": {
-      "early": 0,
-      "middle": 0,
-      "late": 0,
-      "total_spikes": 0
+      "early": 993,
+      "middle": 979,
+      "late": 518,
+      "total_spikes": 2490
     },
     "wrong": {
-      "early": 0,
-      "middle": 0,
-      "late": 0,
-      "total_spikes": 0
+      "early": 10332,
+      "middle": 14883,
+      "late": 9406,
+      "total_spikes": 34621
     }
   }
 }
