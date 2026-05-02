@@ -12,6 +12,7 @@ This script:
 """
 
 import argparse
+import inspect
 import re
 from pathlib import Path
 
@@ -182,26 +183,39 @@ def main():
         label_pad_token_id=-100,
     )
 
-    train_args = TrainingArguments(
-        output_dir=str(output_dir),
-        num_train_epochs=args.epochs,
-        learning_rate=args.lr,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
-        gradient_accumulation_steps=args.grad_accum,
-        warmup_ratio=args.warmup_ratio,
-        weight_decay=args.weight_decay,
-        logging_steps=args.logging_steps,
-        save_steps=args.save_steps,
-        eval_steps=args.eval_steps,
-        evaluation_strategy="steps",
-        save_strategy="steps",
-        bf16=False,
-        fp16=use_fp16,
-        report_to="none",
-        dataloader_num_workers=0,
-        gradient_checkpointing=True,
-    )
+    ta_signature = inspect.signature(TrainingArguments.__init__).parameters
+    ta_kwargs = {
+        "output_dir": str(output_dir),
+        "num_train_epochs": args.epochs,
+        "learning_rate": args.lr,
+        "per_device_train_batch_size": args.batch_size,
+        "per_device_eval_batch_size": args.batch_size,
+        "gradient_accumulation_steps": args.grad_accum,
+        "warmup_ratio": args.warmup_ratio,
+        "weight_decay": args.weight_decay,
+        "logging_steps": args.logging_steps,
+        "save_steps": args.save_steps,
+        "eval_steps": args.eval_steps,
+        "bf16": False,
+        "fp16": use_fp16,
+        "report_to": "none",
+        "dataloader_num_workers": 0,
+        "gradient_checkpointing": True,
+    }
+
+    # Transformers API changed: some versions use evaluation_strategy,
+    # newer builds may expose eval_strategy.
+    if "evaluation_strategy" in ta_signature:
+        ta_kwargs["evaluation_strategy"] = "steps"
+    elif "eval_strategy" in ta_signature:
+        ta_kwargs["eval_strategy"] = "steps"
+    else:
+        ta_kwargs["do_eval"] = True
+
+    if "save_strategy" in ta_signature:
+        ta_kwargs["save_strategy"] = "steps"
+
+    train_args = TrainingArguments(**ta_kwargs)
 
     trainer = Trainer(
         model=model,
