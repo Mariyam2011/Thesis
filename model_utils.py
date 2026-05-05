@@ -16,6 +16,7 @@ Key design decisions:
 import re
 import torch
 import torch.nn.functional as F
+from peft import PeftModel
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from transformers import StoppingCriteria, StoppingCriteriaList
 
@@ -133,7 +134,7 @@ def classify_token(token_str: str) -> str:
 # Model loading
 # ─────────────────────────────────────────────
 
-def load_model(model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"):
+def load_model(model_name: str = "Qwen/Qwen2.5-0.5B-Instruct", adapter_path: str | None = None):
     """
     Load tokenizer and model. Uses float16 on GPU, float32 on CPU.
     """
@@ -146,7 +147,13 @@ def load_model(model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"):
         model_name,
         dtype=torch.float16 if DEVICE == "cuda" else torch.float32,
         trust_remote_code=True
-    ).to(DEVICE)
+    )
+
+    if adapter_path:
+        print(f"[model_utils] Loading LoRA adapter from: {adapter_path}")
+        model = PeftModel.from_pretrained(model, adapter_path)
+
+    model = model.to(DEVICE)
     model.eval()
     print(f"[model_utils] Model loaded. Parameters: {sum(p.numel() for p in model.parameters()):,}")
     return tokenizer, model

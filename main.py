@@ -16,6 +16,9 @@ Usage examples:
   # Full run, all strategies
   python main.py
 
+  # Run using a LoRA fine-tuned adapter
+  python main.py --model Qwen/Qwen3-0.6B --adapter-path lora_outputs/qwen3_gsm8k/adapter --strategies cot
+
   # Resume an interrupted run
   python main.py --resume --strategies cot
 
@@ -62,6 +65,10 @@ def parse_args():
     parser.add_argument(
         "--model", type=str, default=DEFAULT_MODEL,
         help=f"HuggingFace model name (default: {DEFAULT_MODEL})"
+    )
+    parser.add_argument(
+        "--adapter-path", type=str, default=None,
+        help="Optional LoRA adapter directory (e.g., lora_outputs/.../adapter) to evaluate fine-tuned model."
     )
     parser.add_argument(
         "--strategies", nargs="+", default=DEFAULT_STRATEGIES,
@@ -194,6 +201,7 @@ def main():
     print("  ENTROPY THESIS EXPERIMENT")
     print("=" * 60)
     print(f"  Model:      {args.model}")
+    print(f"  Adapter:    {args.adapter_path or 'none'}")
     print(f"  Strategies: {args.strategies}")
     print(f"  Datasets:   {args.datasets}")
     print(f"  Limit:      {args.limit or 'full'}")
@@ -226,7 +234,7 @@ def main():
 
     # ── Load model ─────────────────────────────────────────────
     print(f"\n[main] Loading model: {args.model}")
-    tokenizer, model = load_model(args.model)
+    tokenizer, model = load_model(args.model, adapter_path=args.adapter_path)
 
     # ── Run experiments ────────────────────────────────────────
     all_results = []

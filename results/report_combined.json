@@ -16,8 +16,8 @@
     "output_length": 0.5802
   },
   "random_baseline_auroc": {
-    "mean": 0.4994,
-    "std": 0.029
+    "mean": 0.5025,
+    "std": 0.0287
   },
   "segment_entropy_comparison": {
     "arithmetic": {
