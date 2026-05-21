@@ -9,9 +9,16 @@ This script:
   3) Applies label masking so loss is computed only on the target response
   4) Fine-tunes with PEFT/LoRA
   5) Saves adapter weights (and optionally merged full model)
+
+Rank sweep (compare r=16 vs r=32 vs r=64):
+  python finetune_lora.py --lora-ranks 32 64 --output-dir lora_outputs/qwen3_gsm8k
+
+Or use the full train+eval pipeline:
+  python run_lora_rank_experiment.py --ranks 32 64 --include-baseline
 """
 
 import argparse
+import json
 import re
 from pathlib import Path
 
@@ -50,7 +57,25 @@ def parse_args():
 
     # LoRA hyperparameters
     parser.add_argument("--lora-r", type=int, default=16)
-    parser.add_argument("--lora-alpha", type=int, default=32)
+    parser.add_argument(
+        "--lora-ranks",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Train one adapter per rank (e.g. 32 64). Overrides --lora-r.",
+    )
+    parser.add_argument(
+        "--lora-alpha",
+        type=int,
+        default=None,
+        help="LoRA alpha (default: lora_alpha_scale * r for each rank).",
+    )
+    parser.add_argument(
+        "--lora-alpha-scale",
+        type=float,
+        default=2.0,
+        help="When --lora-alpha is omitted, alpha = scale * r (e.g. r=16 -> 32).",
+    )
     parser.add_argument("--lora-dropout", type=float, default=0.05)
     parser.add_argument(
         "--target-modules",
@@ -66,6 +91,24 @@ def parse_args():
         help="Also save merged full model (base + LoRA).",
     )
     return parser.parse_args()
+
+
+def resolve_lora_alpha(lora_r: int, lora_alpha: int | None, alpha_scale: float) -> int:
+    if lora_alpha is not None:
+        return lora_alpha
+    return int(round(lora_r * alpha_scale))
+
+
+def output_dir_for_rank(base_output_dir: Path, lora_r: int, multi_rank: bool) -> Path:
+    if not multi_rank:
+        return base_output_dir
+    return base_output_dir.parent / f"{base_output_dir.name}_r{lora_r}"
+
+
+def save_run_config(output_dir: Path, config: dict) -> None:
+    path = output_dir / "run_config.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
 
 
 def _to_final_answer_style(answer_text: str) -> str:
@@ -117,15 +160,16 @@ def build_features(example: dict, tokenizer, max_length: int) -> dict:
     }
 
 
-def main():
-    args = parse_args()
+def train_lora(args, *, lora_r: int, output_dir: Path) -> dict:
+    """Fine-tune a single LoRA adapter at rank ``lora_r``."""
     set_seed(args.seed)
-    output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    lora_alpha = resolve_lora_alpha(lora_r, args.lora_alpha, args.lora_alpha_scale)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     use_fp16 = device == "cuda"
     print(f"[lora] Device: {device}")
+    print(f"[lora] Rank r={lora_r}, alpha={lora_alpha}, output={output_dir}")
     print(f"[lora] Loading model: {args.model}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
@@ -142,8 +186,8 @@ def main():
     lora_cfg = LoraConfig(
         task_type=TaskType.CAUSAL_LM,
         inference_mode=False,
-        r=args.lora_r,
-        lora_alpha=args.lora_alpha,
+        r=lora_r,
+        lora_alpha=lora_alpha,
         lora_dropout=args.lora_dropout,
         target_modules=args.target_modules,
         bias="none",
@@ -153,8 +197,6 @@ def main():
 
     print("[lora] Loading GSM8K train split...")
     ds = load_dataset("gsm8k", "main", split="train")
-
-    # Keep a small validation split for monitoring.
     split = ds.train_test_split(test_size=0.02, seed=args.seed, shuffle=True)
     train_ds = split["train"]
     eval_ds = split["test"]
@@ -181,9 +223,26 @@ def main():
         return_tensors="pt",
         label_pad_token_id=-100,
     )
-    train_args = TrainingArguments(        
-        output_dir=str(output_dir),    
-        num_train_epochs=args.epochs,        learning_rate=args.lr,        per_device_train_batch_size=args.batch_size,        per_device_eval_batch_size=args.batch_size,        gradient_accumulation_steps=args.grad_accum,        warmup_ratio=args.warmup_ratio,        weight_decay=args.weight_decay,        logging_steps=args.logging_steps,        save_steps=args.save_steps,        eval_steps=args.eval_steps,        evaluation_strategy="steps",        save_strategy="steps",        bf16=False,        fp16=use_fp16,        report_to="none",        dataloader_num_workers=0,        gradient_checkpointing=True,    )
+    train_args = TrainingArguments(
+        output_dir=str(output_dir),
+        num_train_epochs=args.epochs,
+        learning_rate=args.lr,
+        per_device_train_batch_size=args.batch_size,
+        per_device_eval_batch_size=args.batch_size,
+        gradient_accumulation_steps=args.grad_accum,
+        warmup_ratio=args.warmup_ratio,
+        weight_decay=args.weight_decay,
+        logging_steps=args.logging_steps,
+        save_steps=args.save_steps,
+        eval_steps=args.eval_steps,
+        evaluation_strategy="steps",
+        save_strategy="steps",
+        bf16=False,
+        fp16=use_fp16,
+        report_to="none",
+        dataloader_num_workers=0,
+        gradient_checkpointing=True,
+    )
 
     trainer = Trainer(
         model=model,
@@ -195,12 +254,31 @@ def main():
     )
 
     print("[lora] Starting training...")
-    trainer.train()
+    train_result = trainer.train()
 
     adapter_dir = output_dir / "adapter"
     print(f"[lora] Saving LoRA adapter to {adapter_dir}")
     trainer.model.save_pretrained(adapter_dir)
     tokenizer.save_pretrained(adapter_dir)
+
+    run_summary = {
+        "model": args.model,
+        "lora_r": lora_r,
+        "lora_alpha": lora_alpha,
+        "lora_dropout": args.lora_dropout,
+        "lora_alpha_scale": args.lora_alpha_scale,
+        "target_modules": args.target_modules,
+        "epochs": args.epochs,
+        "learning_rate": args.lr,
+        "batch_size": args.batch_size,
+        "grad_accum": args.grad_accum,
+        "max_length": args.max_length,
+        "seed": args.seed,
+        "adapter_dir": str(adapter_dir),
+        "train_loss": train_result.training_loss,
+        "global_step": train_result.global_step,
+    }
+    save_run_config(output_dir, run_summary)
 
     if args.save_merged:
         print("[lora] Merging adapter into base model...")
@@ -208,9 +286,36 @@ def main():
         merged_dir = output_dir / "merged"
         merged.save_pretrained(merged_dir)
         tokenizer.save_pretrained(merged_dir)
+        run_summary["merged_dir"] = str(merged_dir)
+        save_run_config(output_dir, run_summary)
         print(f"[lora] Merged model saved to {merged_dir}")
 
-    print("[lora] Done.")
+    print(f"[lora] Done (r={lora_r}).")
+    return run_summary
+
+
+def ranks_to_train(args) -> list[int]:
+    if args.lora_ranks:
+        return sorted(set(args.lora_ranks))
+    return [args.lora_r]
+
+
+def main():
+    args = parse_args()
+    ranks = ranks_to_train(args)
+    base_output = Path(args.output_dir)
+    multi_rank = len(ranks) > 1
+
+    summaries = []
+    for lora_r in ranks:
+        out_dir = output_dir_for_rank(base_output, lora_r, multi_rank)
+        summaries.append(train_lora(args, lora_r=lora_r, output_dir=out_dir))
+
+    if len(summaries) > 1:
+        summary_path = base_output.parent / f"{base_output.name}_rank_sweep_summary.json"
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summaries, f, indent=2)
+        print(f"[lora] Rank sweep summary saved -> {summary_path}")
 
 
 if __name__ == "__main__":

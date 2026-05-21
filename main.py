@@ -16,8 +16,11 @@ Usage examples:
   # Full run, all strategies
   python main.py
 
-  # Run using a LoRA fine-tuned adapter
+  # Run using a LoRA fine-tuned adapter (r=16)
   python main.py --model Qwen/Qwen3-0.6B --adapter-path lora_outputs/qwen3_gsm8k/adapter --strategies cot
+
+  # LoRA rank ablation (train r=32/64, eval vs r=16 baseline)
+  python run_lora_rank_experiment.py --ranks 32 64 --include-baseline
 
   # Resume an interrupted run
   python main.py --resume --strategies cot
