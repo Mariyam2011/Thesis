@@ -8,8 +8,9 @@ Computes:
   2. AUROC for multiple entropy signals
   3. Baseline comparisons (random, output length)
   4. Per-segment entropy analysis (your core hypothesis)
-  5. Statistical significance test
-  6. Summary report
+  5. Length-confound control (partial correlation, residual AUROC)
+  6. Statistical significance test
+  7. Summary report
 
 The key insight: we compare AUROC across signals to find which
 entropy measure is most predictive of failure.
@@ -229,7 +230,158 @@ def analyze_spike_positions(results: list[dict]) -> dict:
 
 
 # ─────────────────────────────────────────────
-# 5. Full summary report
+# 5. Length confound — partial correlation & residual AUROC
+# ─────────────────────────────────────────────
+
+def _extract_length_confound_arrays(
+    results: list[dict],
+    *,
+    require_arithmetic: bool = True,
+    length_transform: str = "log1p",
+) -> dict:
+    """
+    Per-problem arrays for length-confound analysis.
+    y_fail = 1 if wrong, 0 if correct (same coding as AUROC).
+    """
+    rows = []
+    for r in results:
+        arith = r.get("segment_entropy", {}).get("arithmetic")
+        if require_arithmetic and arith is None:
+            continue
+        if arith is None:
+            arith = r["entropy_mean"]
+
+        text = r.get("generated_text", "")
+        length = len(text)
+        if length_transform == "log1p":
+            length_feat = float(np.log1p(length))
+        elif length_transform == "raw":
+            length_feat = float(length)
+        else:
+            raise ValueError(f"unknown length_transform: {length_transform}")
+
+        rows.append((float(arith), 0.0 if r["correct"] else 1.0, length_feat, length))
+
+    if not rows:
+        raise ValueError("No rows after filtering (require_arithmetic=True?)")
+
+    arith, y_fail, length_feat, raw_length = map(np.array, zip(*rows))
+    return {
+        "entropy_arithmetic": arith,
+        "y_fail": y_fail,
+        "length_feat": length_feat,
+        "raw_length": raw_length,
+        "n": len(rows),
+        "length_transform": length_transform,
+    }
+
+
+def _residualize(y: np.ndarray, x_control: np.ndarray) -> np.ndarray:
+    """OLS residuals of y ~ intercept + x_control."""
+    X = np.column_stack([np.ones(len(x_control)), x_control])
+    beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    return y - X @ beta
+
+
+def partial_correlation(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> dict:
+    """
+    Pearson partial correlation r(x, y | z) via residualization.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    z = np.asarray(z, dtype=float)
+
+    x_res = _residualize(x, z)
+    y_res = _residualize(y, z)
+    r, p = stats.pearsonr(x_res, y_res)
+    return {"r_partial": round(float(r), 4), "p_value": float(p), "n": int(len(x))}
+
+
+def length_adjusted_auroc(
+    entropy: np.ndarray,
+    y_fail: np.ndarray,
+    length_feat: np.ndarray,
+) -> float:
+    """AUROC on arithmetic entropy residuals after regressing on length."""
+    scores_res = _residualize(np.asarray(entropy, dtype=float), length_feat)
+    if len(np.unique(y_fail)) < 2:
+        return float("nan")
+    return float(roc_auc_score(y_fail, scores_res))
+
+
+def _bootstrap_ci(values: list[float], q: tuple[float, float] = (2.5, 97.5)) -> list[float | None]:
+    if not values:
+        return [None, None]
+    lo, hi = np.percentile(values, q)
+    return [round(float(lo), 4), round(float(hi), 4)]
+
+
+def analyze_length_confound(
+    results: list[dict],
+    *,
+    n_bootstrap: int = 1000,
+    seed: int = 0,
+    require_arithmetic: bool = True,
+    length_transform: str = "log1p",
+) -> dict:
+    """
+    Control for output length when testing arithmetic entropy vs failure.
+
+    Returns partial correlation, raw/length/residual AUROCs, and bootstrap CIs.
+    """
+    base = _extract_length_confound_arrays(
+        results,
+        require_arithmetic=require_arithmetic,
+        length_transform=length_transform,
+    )
+    x = base["entropy_arithmetic"]
+    y = base["y_fail"]
+    z = base["length_feat"]
+    n = base["n"]
+
+    pc_arith = partial_correlation(x, y, z)
+    pc_length = partial_correlation(z, y, x)
+
+    raw_auroc = float(roc_auc_score(y, x))
+    len_auroc = float(roc_auc_score(y, z))
+    adj_auroc = length_adjusted_auroc(x, y, z)
+
+    rng = np.random.default_rng(seed)
+    r_arith_boot, r_len_boot, raw_boot, adj_boot = [], [], [], []
+    for _ in range(n_bootstrap):
+        idx = rng.integers(0, n, size=n)
+        xb, yb, zb = x[idx], y[idx], z[idx]
+        if len(np.unique(yb)) < 2:
+            continue
+        r_arith_boot.append(partial_correlation(xb, yb, zb)["r_partial"])
+        r_len_boot.append(partial_correlation(zb, yb, xb)["r_partial"])
+        raw_boot.append(roc_auc_score(yb, xb))
+        adj_boot.append(length_adjusted_auroc(xb, yb, zb))
+
+    return {
+        "n_used": n,
+        "n_total": len(results),
+        "length_transform": length_transform,
+        "partial_corr_arith_fail_given_length": {
+            **pc_arith,
+            "ci_95": _bootstrap_ci(r_arith_boot),
+        },
+        "partial_corr_length_fail_given_arith": {
+            **pc_length,
+            "ci_95": _bootstrap_ci(r_len_boot),
+        },
+        "auroc": {
+            "entropy_arithmetic_raw": round(raw_auroc, 4),
+            "output_length": round(len_auroc, 4),
+            "entropy_arithmetic_length_adjusted": round(adj_auroc, 4),
+            "raw_ci_95": _bootstrap_ci(raw_boot),
+            "adjusted_ci_95": _bootstrap_ci(adj_boot),
+        },
+    }
+
+
+# ─────────────────────────────────────────────
+# 6. Full summary report
 # ─────────────────────────────────────────────
 
 def _make_json_safe(obj):
@@ -267,6 +419,7 @@ def generate_report(results: list[dict], output_path: str = "results/report.json
     random_baseline = compute_random_baseline_auroc(results)
     segment_compare = compare_segment_entropy_correct_vs_wrong(results)
     spike_positions = analyze_spike_positions(results)
+    length_confound = analyze_length_confound(results)
 
     report = {
         "n_problems":          len(results),
@@ -275,6 +428,7 @@ def generate_report(results: list[dict], output_path: str = "results/report.json
         "random_baseline_auroc": random_baseline,
         "segment_entropy_comparison": segment_compare,
         "spike_position_analysis":    spike_positions,
+        "length_confound_analysis":   length_confound,
     }
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -283,7 +437,7 @@ def generate_report(results: list[dict], output_path: str = "results/report.json
         json.dump(_make_json_safe(report), f, indent=2)
 
     _print_report(report)
-    print(f"[analysis] Report saved → {output_path}")
+    print(f"[analysis] Report saved -> {output_path}")
     return report
 
 
@@ -297,7 +451,7 @@ def _print_report(report: dict):
     print(f"  Correct:   {acc['correct']}  ({acc['accuracy']*100:.1f}%)")
     print(f"  Wrong:     {acc['wrong']}")
 
-    print("\n── AUROC Scores (failure prediction) ──")
+    print("\n-- AUROC Scores (failure prediction) --")
     print("  (higher = better predictor of failure | random ≈ 0.5)")
     rb = report["random_baseline_auroc"]
     print(f"  Random baseline: {rb['mean']} ± {rb['std']}")
@@ -307,10 +461,10 @@ def _print_report(report: dict):
         key=lambda x: x[1] or 0,
         reverse=True
     ):
-        bar = "█" * int((score or 0) * 20)
+        bar = "#" * int((score or 0) * 20)
         print(f"  {signal:<25} {score:.4f}  {bar}")
 
-    print("\n── Segment Entropy: Correct vs Wrong ──")
+    print("\n-- Segment Entropy: Correct vs Wrong --")
     for seg, data in report["segment_entropy_comparison"].items():
         if "note" in data:
             print(f"  {seg}: {data['note']}")
@@ -324,8 +478,74 @@ def _print_report(report: dict):
             f"p={data['p_value']:.4f} {sig}"
         )
 
-    print("\n── Entropy Spike Positions ──")
+    print("\n-- Entropy Spike Positions --")
     for outcome, pos in report["spike_position_analysis"].items():
         print(f"  {outcome}: early={pos['early']} mid={pos['middle']} late={pos['late']} total={pos['total_spikes']}")
 
+    if "length_confound_analysis" in report:
+        _print_length_confound(report["length_confound_analysis"])
+
     print("="*60 + "\n")
+
+
+def _print_length_confound(lc: dict):
+    print("\n-- Length Confound (arithmetic entropy vs failure) --")
+    print(f"  n_used (with arithmetic segment): {lc['n_used']} / {lc['n_total']}")
+    pa = lc["partial_corr_arith_fail_given_length"]
+    pl = lc["partial_corr_length_fail_given_arith"]
+    print(
+        f"  Partial r(arith, fail | length): {pa['r_partial']:.4f}  "
+        f"p={pa['p_value']:.2e}  CI={pa['ci_95']}"
+    )
+    print(
+        f"  Partial r(length, fail | arith): {pl['r_partial']:.4f}  "
+        f"p={pl['p_value']:.2e}  CI={pl['ci_95']}"
+    )
+    au = lc["auroc"]
+    print(
+        f"  AUROC raw arithmetic:     {au['entropy_arithmetic_raw']:.4f}  "
+        f"CI={au['raw_ci_95']}"
+    )
+    print(f"  AUROC output length:      {au['output_length']:.4f}")
+    print(
+        f"  AUROC length-adjusted:    {au['entropy_arithmetic_length_adjusted']:.4f}  "
+        f"CI={au['adjusted_ci_95']}"
+    )
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run thesis analysis on a results JSON file.")
+    parser.add_argument(
+        "results_path",
+        nargs="?",
+        default="results_ft/cot_gsm8k_full.json",
+        help="Path to experiment results JSON (list of dicts)",
+    )
+    parser.add_argument(
+        "--output",
+        default=None,
+        help="Report output path (default: results_ft/length_confound_<stem>.json)",
+    )
+    parser.add_argument("--length-only", action="store_true", help="Only run length-confound analysis")
+    args = parser.parse_args()
+
+    results_path = Path(args.results_path)
+    with open(results_path, encoding="utf-8") as f:
+        results = json.load(f)
+
+    if args.length_only:
+        out = args.output or str(
+            results_path.parent / f"length_confound_{results_path.stem}.json"
+        )
+        report = analyze_length_confound(results)
+        report = _make_json_safe(report)
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        print(f"[analysis] Length confound report saved -> {out}")
+        _print_length_confound(report)
+    else:
+        out = args.output or str(results_path.parent / f"report_{results_path.stem}.json")
+        generate_report(results, output_path=out)
